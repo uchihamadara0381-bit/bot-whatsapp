@@ -138,23 +138,27 @@ function iniciarBotEmpresa(empresaId) {
 
   statusBots[empresaId] = "iniciando";
 
-  const client = new Client({
-    authStrategy: new LocalAuth({
-      clientId: empresaId,
-      dataPath: "./sessions"
-    }),
+const client = new Client({
+  authStrategy: new LocalAuth({
+    clientId: empresaId,
+    dataPath: "./sessions"
+  }),
 
-    puppeteer: {
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu"
-      ]
-    }
-  });
+  puppeteer: {
+    headless: true,
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-accelerated-2d-canvas",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--single-process"
+    ]
+  }
+});
 
   client.on("qr", async qr => {
     console.log("QR GERADO:", empresaId);
