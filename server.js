@@ -7,7 +7,12 @@ const QRCode = require("qrcode");
 const admin = require("firebase-admin");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 
-const serviceAccount = require("./codestudio-464a0-firebase-adminsdk-fbsvc-80c20c1704.json");
+const serviceAccount = JSON.parse(
+  Buffer.from(
+    process.env.FIREBASE_SERVICE_ACCOUNT_BASE64,
+    "base64"
+  ).toString("utf8")
+);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount)
