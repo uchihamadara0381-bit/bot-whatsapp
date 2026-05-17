@@ -49,6 +49,7 @@ const statusBots = {};
 const monitoresPedidos = {};
 
 function normalizarNumero(numero) {
+
   if (!numero) return "";
 
   let num = String(numero)
@@ -63,6 +64,7 @@ function normalizarNumero(numero) {
 }
 
 async function buscarConfigBot(empresaId) {
+
   try {
 
     const doc = await db
@@ -356,23 +358,50 @@ function iniciarBotEmpresa(empresaId) {
     }
   );
 
+  // =========================
+  // MENSAGEM AUTOMÁTICA
+  // =========================
+
   client.on(
     "message",
     async message => {
 
       try {
 
+        // ignora mensagens do próprio bot
         if (message.fromMe) return;
 
+        // ignora grupos
         if (
           message.from.includes("@g.us")
         ) return;
+
+        // texto enviado
+        const texto = message.body
+          ?.toLowerCase()
+          ?.trim();
+
+        // palavras que ativam o bot
+        const gatilhos = [
+          "oi",
+          "ola",
+          "olá",
+          "menu",
+          "cardapio",
+          "cardápio"
+        ];
+
+        // ignora qualquer outra coisa
+        if (!gatilhos.includes(texto)) {
+          return;
+        }
 
         const config =
           await buscarConfigBot(
             empresaId
           );
 
+        // verifica se bot está ativo
         if (
           config.ativo === false
         ) {
@@ -385,6 +414,7 @@ function iniciarBotEmpresa(empresaId) {
           return;
         }
 
+        // salva cliente
         const {
           numero,
           nome
@@ -393,9 +423,11 @@ function iniciarBotEmpresa(empresaId) {
           message
         );
 
+        // link cardápio
         const linkCardapio =
 `${URL_SITE}?empresa=${empresaId}&wpp=${numero}`;
 
+        // mensagem final
         const mensagem =
 `${config.mensagemBoasVindas || `Olá ${nome}! 😊`}
 
@@ -403,6 +435,7 @@ function iniciarBotEmpresa(empresaId) {
 
 ${linkCardapio}`;
 
+        // responde cliente
         await message.reply(
           mensagem
         );
