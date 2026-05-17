@@ -31,6 +31,7 @@ const URL_SITE = "https://codestudio-464a0.web.app/cliente.html";
 const bots = {};
 const qrs = {};
 const statusBots = {};
+const monitoresPedidos = {};
 
 function normalizarNumero(numero) {
   if (!numero) return "";
@@ -106,7 +107,7 @@ async function enviarMensagemEmpresa(empresaId, numero, mensagem) {
     }
 
     if (statusBots[empresaId] !== "conectado") {
-      console.log("Bot não conectado:", empresaId);
+      console.log("Bot não conectado:", empresaId, statusBots[empresaId]);
       return false;
     }
 
@@ -138,27 +139,27 @@ function iniciarBotEmpresa(empresaId) {
 
   statusBots[empresaId] = "iniciando";
 
-const client = new Client({
-  authStrategy: new LocalAuth({
-    clientId: empresaId,
-    dataPath: "./sessions"
-  }),
+  const client = new Client({
+    authStrategy: new LocalAuth({
+      clientId: empresaId,
+      dataPath: "./sessions"
+    }),
 
-  puppeteer: {
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-accelerated-2d-canvas",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-zygote",
-      "--single-process"
-    ]
-  }
-});
+    puppeteer: {
+      headless: true,
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-zygote",
+        "--disable-extensions"
+      ]
+    }
+  });
 
   client.on("qr", async qr => {
     console.log("QR GERADO:", empresaId);
@@ -170,6 +171,14 @@ const client = new Client({
     qrs[empresaId] = await QRCode.toDataURL(qr);
 
     statusBots[empresaId] = "aguardando_qr";
+  });
+
+  client.on("loading_screen", (percent, message) => {
+    console.log("CARREGANDO WHATSAPP:", empresaId, percent, message);
+  });
+
+  client.on("change_state", state => {
+    console.log("ESTADO WHATSAPP:", empresaId, state);
   });
 
   client.on("authenticated", () => {
@@ -190,6 +199,9 @@ const client = new Client({
     console.log("ERRO AUTENTICAÇÃO:", empresaId, erro);
 
     statusBots[empresaId] = "erro_autenticacao";
+
+    delete bots[empresaId];
+    delete qrs[empresaId];
   });
 
   client.on("disconnected", motivo => {
@@ -203,7 +215,11 @@ const client = new Client({
     setTimeout(() => {
       console.log("Tentando reconectar:", empresaId);
 
-      iniciarBotEmpresa(empresaId);
+      try {
+        iniciarBotEmpresa(empresaId);
+      } catch (erro) {
+        console.log("Erro ao tentar reconectar:", empresaId, erro.message);
+      }
 
     }, 10000);
   });
@@ -238,7 +254,7 @@ ${linkCardapio}`;
 
       await message.reply(mensagem);
 
-      console.log("Mensagem boas-vindas enviada");
+      console.log("Mensagem boas-vindas enviada:", empresaId);
 
     } catch (erro) {
       console.log("Erro mensagem recebida:", erro.message);
@@ -247,7 +263,14 @@ ${linkCardapio}`;
 
   bots[empresaId] = client;
 
-  client.initialize();
+  client.initialize().catch(erro => {
+    console.log("ERRO AO INICIAR CLIENT:", empresaId, erro.message);
+
+    statusBots[empresaId] = "erro_inicializacao";
+
+    delete bots[empresaId];
+    delete qrs[empresaId];
+  });
 
   return {
     empresaId,
@@ -256,9 +279,14 @@ ${linkCardapio}`;
 }
 
 async function monitorarPedidosEmpresa(empresaId) {
+  if (monitoresPedidos[empresaId]) {
+    console.log("Monitor já ativo:", empresaId);
+    return;
+  }
+
   console.log("Monitorando pedidos:", empresaId);
 
-  db
+  const unsubscribe = db
     .collection("empresas")
     .doc(empresaId)
     .collection("pedidos")
@@ -381,7 +409,13 @@ async function monitorarPedidosEmpresa(empresaId) {
           );
         }
       }
+    }, erro => {
+      console.log("Erro no snapshot pedidos:", empresaId, erro.message);
+
+      delete monitoresPedidos[empresaId];
     });
+
+  monitoresPedidos[empresaId] = unsubscribe;
 }
 
 async function iniciarTodosBots() {
@@ -454,6 +488,9 @@ app.get("/bot/status/:empresaId", (req, res) => {
     conectado:
       statusBots[empresaId] === "conectado",
 
+    autenticado:
+      statusBots[empresaId] === "autenticado",
+
     temQr: !!qrs[empresaId]
   });
 });
@@ -507,7 +544,17 @@ app.post("/bot/desconectar", async (req, res) => {
   try {
     const { empresaId } = req.body;
 
+    if (!empresaId) {
+      return res.status(400).json({
+        erro: "empresaId obrigatório"
+      });
+    }
+
     if (!bots[empresaId]) {
+      statusBots[empresaId] = "desconectado";
+
+      delete qrs[empresaId];
+
       return res.json({
         empresaId,
         status: "nao_conectado"
