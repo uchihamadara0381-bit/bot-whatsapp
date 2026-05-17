@@ -231,9 +231,8 @@ function iniciarBotEmpresa(empresaId) {
 
       headless: "new",
 
-      executablePath:
-        process.env.PUPPETEER_EXECUTABLE_PATH ||
-        puppeteer.executablePath(),
+executablePath:
+  puppeteer.executablePath(),
 
       args: [
         "--no-sandbox",
