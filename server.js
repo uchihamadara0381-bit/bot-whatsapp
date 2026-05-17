@@ -580,10 +580,8 @@ app.post("/bot/desconectar", async (req, res) => {
   }
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(
     `Servidor rodando porta ${PORT}`
   );
-
-  await iniciarTodosBots();
 });
