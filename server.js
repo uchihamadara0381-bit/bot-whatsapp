@@ -1,11 +1,24 @@
 require("dotenv").config();
 
+process.on("uncaughtException", erro => {
+  console.log("ERRO FATAL uncaughtException:", erro);
+});
+
+process.on("unhandledRejection", erro => {
+  console.log("ERRO FATAL unhandledRejection:", erro);
+});
+
 const express = require("express");
 const cors = require("cors");
 const qrcodeTerminal = require("qrcode-terminal");
 const QRCode = require("qrcode");
 const admin = require("firebase-admin");
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const puppeteer = require("puppeteer");
+
+const {
+  Client,
+  LocalAuth
+} = require("whatsapp-web.js");
 
 const serviceAccount = JSON.parse(
   Buffer.from(
@@ -26,7 +39,9 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
-const URL_SITE = "https://codestudio-464a0.web.app/cliente.html";
+
+const URL_SITE =
+  "https://codestudio-464a0.web.app/cliente.html";
 
 const bots = {};
 const qrs = {};
@@ -49,6 +64,7 @@ function normalizarNumero(numero) {
 
 async function buscarConfigBot(empresaId) {
   try {
+
     const doc = await db
       .collection("empresas")
       .doc(empresaId)
@@ -57,21 +73,35 @@ async function buscarConfigBot(empresaId) {
       .get();
 
     if (!doc.exists) {
+
       return {
         ativo: true,
         avisarKanban: true,
-        mensagemBoasVindas: "Olá! Seja bem-vindo(a) 😊",
-        mensagemPedidoAceito: "✅ Seu pedido foi aceito!",
-        mensagemSaiuEntrega: "🚗 Seu pedido saiu para entrega!",
-        mensagemPedidoFinalizado: "✅ Pedido finalizado. Obrigado!",
-        mensagemPedidoCancelado: "❌ Pedido cancelado."
+        mensagemBoasVindas:
+          "Olá! Seja bem-vindo(a) 😊",
+
+        mensagemPedidoAceito:
+          "✅ Seu pedido foi aceito!",
+
+        mensagemSaiuEntrega:
+          "🚗 Seu pedido saiu para entrega!",
+
+        mensagemPedidoFinalizado:
+          "✅ Pedido finalizado. Obrigado!",
+
+        mensagemPedidoCancelado:
+          "❌ Pedido cancelado."
       };
     }
 
     return doc.data();
 
   } catch (erro) {
-    console.log("Erro buscarConfigBot:", erro.message);
+
+    console.log(
+      "Erro buscarConfigBot:",
+      erro.message
+    );
 
     return {
       ativo: true
@@ -79,9 +109,17 @@ async function buscarConfigBot(empresaId) {
   }
 }
 
-async function salvarClienteBot(empresaId, message) {
-  const numero = normalizarNumero(message.from);
-  const nome = message._data?.notifyName || "Cliente WhatsApp";
+async function salvarClienteBot(
+  empresaId,
+  message
+) {
+
+  const numero =
+    normalizarNumero(message.from);
+
+  const nome =
+    message._data?.notifyName ||
+    "Cliente WhatsApp";
 
   await db
     .collection("empresas")
@@ -91,186 +129,316 @@ async function salvarClienteBot(empresaId, message) {
     .set({
       nome,
       whatsapp: numero,
-      ultimoContato: admin.firestore.FieldValue.serverTimestamp()
+      ultimoContato:
+        admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
 
-  return { numero, nome };
+  return {
+    numero,
+    nome
+  };
 }
 
-async function enviarMensagemEmpresa(empresaId, numero, mensagem) {
+async function enviarMensagemEmpresa(
+  empresaId,
+  numero,
+  mensagem
+) {
+
   try {
+
     const bot = bots[empresaId];
 
     if (!bot) {
-      console.log("Bot não encontrado:", empresaId);
+      console.log(
+        "Bot não encontrado:",
+        empresaId
+      );
+
       return false;
     }
 
-    if (statusBots[empresaId] !== "conectado") {
-      console.log("Bot não conectado:", empresaId, statusBots[empresaId]);
+    if (
+      statusBots[empresaId] !== "conectado"
+    ) {
+
+      console.log(
+        "Bot não conectado:",
+        empresaId,
+        statusBots[empresaId]
+      );
+
       return false;
     }
 
-    const numeroFinal = `${normalizarNumero(numero)}@c.us`;
+    const numeroFinal =
+`${normalizarNumero(numero)}@c.us`;
 
-    await bot.sendMessage(numeroFinal, mensagem);
+    await bot.sendMessage(
+      numeroFinal,
+      mensagem
+    );
 
-    console.log("Mensagem enviada:", empresaId, numero);
+    console.log(
+      "Mensagem enviada:",
+      empresaId,
+      numero
+    );
 
     return true;
 
   } catch (erro) {
-    console.log("Erro enviarMensagemEmpresa:", erro.message);
+
+    console.log(
+      "Erro enviarMensagemEmpresa:",
+      erro.message
+    );
+
     return false;
   }
 }
 
 function iniciarBotEmpresa(empresaId) {
+
   if (!empresaId) {
-    throw new Error("empresaId obrigatório");
+    throw new Error(
+      "empresaId obrigatório"
+    );
   }
 
   if (bots[empresaId]) {
+
     return {
       empresaId,
-      status: statusBots[empresaId]
+      status:
+        statusBots[empresaId]
     };
   }
 
-  statusBots[empresaId] = "iniciando";
+  statusBots[empresaId] =
+    "iniciando";
 
   const client = new Client({
+
     authStrategy: new LocalAuth({
       clientId: empresaId,
       dataPath: "./sessions"
     }),
 
     puppeteer: {
-      headless: true,
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+
+      headless: "new",
+
+      executablePath:
+        puppeteer.executablePath(),
+
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-accelerated-2d-canvas",
         "--disable-gpu",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-extensions"
+        "--disable-extensions",
+        "--disable-background-timer-throttling",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
+        "--disable-features=site-per-process"
       ]
     }
   });
 
   client.on("qr", async qr => {
-    console.log("QR GERADO:", empresaId);
+
+    console.log(
+      "QR GERADO:",
+      empresaId
+    );
 
     qrcodeTerminal.generate(qr, {
       small: true
     });
 
-    qrs[empresaId] = await QRCode.toDataURL(qr);
+    qrs[empresaId] =
+      await QRCode.toDataURL(qr);
 
-    statusBots[empresaId] = "aguardando_qr";
+    statusBots[empresaId] =
+      "aguardando_qr";
   });
 
-  client.on("loading_screen", (percent, message) => {
-    console.log("CARREGANDO WHATSAPP:", empresaId, percent, message);
-  });
+  client.on(
+    "loading_screen",
+    (percent, message) => {
 
-  client.on("change_state", state => {
-    console.log("ESTADO WHATSAPP:", empresaId, state);
-  });
-
-  client.on("authenticated", () => {
-    console.log("BOT AUTENTICADO:", empresaId);
-
-    statusBots[empresaId] = "autenticado";
-  });
-
-  client.on("ready", () => {
-    console.log("BOT ONLINE:", empresaId);
-
-    qrs[empresaId] = null;
-
-    statusBots[empresaId] = "conectado";
-  });
-
-  client.on("auth_failure", erro => {
-    console.log("ERRO AUTENTICAÇÃO:", empresaId, erro);
-
-    statusBots[empresaId] = "erro_autenticacao";
-
-    delete bots[empresaId];
-    delete qrs[empresaId];
-  });
-
-  client.on("disconnected", motivo => {
-    console.log("BOT DESCONECTADO:", empresaId, motivo);
-
-    statusBots[empresaId] = "desconectado";
-
-    delete bots[empresaId];
-    delete qrs[empresaId];
-
-    setTimeout(() => {
-      console.log("Tentando reconectar:", empresaId);
-
-      try {
-        iniciarBotEmpresa(empresaId);
-      } catch (erro) {
-        console.log("Erro ao tentar reconectar:", empresaId, erro.message);
-      }
-
-    }, 10000);
-  });
-
-  client.on("message", async message => {
-    try {
-      if (message.fromMe) return;
-
-      if (message.from.includes("@g.us")) return;
-
-      const config = await buscarConfigBot(empresaId);
-
-      if (config.ativo === false) {
-        console.log("Bot inativo:", empresaId);
-        return;
-      }
-
-      const { numero, nome } = await salvarClienteBot(
+      console.log(
+        "CARREGANDO WHATSAPP:",
         empresaId,
+        percent,
         message
       );
+    }
+  );
 
-      const linkCardapio =
+  client.on(
+    "change_state",
+    state => {
+
+      console.log(
+        "ESTADO WHATSAPP:",
+        empresaId,
+        state
+      );
+    }
+  );
+
+  client.on(
+    "authenticated",
+    () => {
+
+      console.log(
+        "BOT AUTENTICADO:",
+        empresaId
+      );
+
+      statusBots[empresaId] =
+        "autenticado";
+    }
+  );
+
+  client.on(
+    "ready",
+    () => {
+
+      console.log(
+        "BOT ONLINE:",
+        empresaId
+      );
+
+      qrs[empresaId] = null;
+
+      statusBots[empresaId] =
+        "conectado";
+    }
+  );
+
+  client.on(
+    "auth_failure",
+    erro => {
+
+      console.log(
+        "ERRO AUTENTICAÇÃO:",
+        empresaId,
+        erro
+      );
+
+      statusBots[empresaId] =
+        "erro_autenticacao";
+
+      delete bots[empresaId];
+      delete qrs[empresaId];
+    }
+  );
+
+  client.on(
+    "disconnected",
+    motivo => {
+
+      console.log(
+        "BOT DESCONECTADO:",
+        empresaId,
+        motivo
+      );
+
+      statusBots[empresaId] =
+        "desconectado";
+
+      delete bots[empresaId];
+      delete qrs[empresaId];
+    }
+  );
+
+  client.on(
+    "message",
+    async message => {
+
+      try {
+
+        if (message.fromMe) return;
+
+        if (
+          message.from.includes("@g.us")
+        ) return;
+
+        const config =
+          await buscarConfigBot(
+            empresaId
+          );
+
+        if (
+          config.ativo === false
+        ) {
+
+          console.log(
+            "Bot inativo:",
+            empresaId
+          );
+
+          return;
+        }
+
+        const {
+          numero,
+          nome
+        } = await salvarClienteBot(
+          empresaId,
+          message
+        );
+
+        const linkCardapio =
 `${URL_SITE}?empresa=${empresaId}&wpp=${numero}`;
 
-      const mensagem =
+        const mensagem =
 `${config.mensagemBoasVindas || `Olá ${nome}! 😊`}
 
 📲 Acesse nosso cardápio:
 
 ${linkCardapio}`;
 
-      await message.reply(mensagem);
+        await message.reply(
+          mensagem
+        );
 
-      console.log("Mensagem boas-vindas enviada:", empresaId);
+        console.log(
+          "Mensagem boas-vindas enviada:",
+          empresaId
+        );
 
-    } catch (erro) {
-      console.log("Erro mensagem recebida:", erro.message);
+      } catch (erro) {
+
+        console.log(
+          "Erro mensagem recebida:",
+          erro.message
+        );
+      }
     }
-  });
+  );
 
   bots[empresaId] = client;
 
-  client.initialize().catch(erro => {
-    console.log("ERRO AO INICIAR CLIENT:", empresaId, erro.message);
+  client.initialize().catch(
+    erro => {
 
-    statusBots[empresaId] = "erro_inicializacao";
+      console.log(
+        "ERRO AO INICIAR CLIENT:",
+        empresaId,
+        erro
+      );
 
-    delete bots[empresaId];
-    delete qrs[empresaId];
-  });
+      statusBots[empresaId] =
+        "erro_inicializacao";
+
+      delete bots[empresaId];
+      delete qrs[empresaId];
+    }
+  );
 
   return {
     empresaId,
@@ -278,179 +446,183 @@ ${linkCardapio}`;
   };
 }
 
-async function monitorarPedidosEmpresa(empresaId) {
-  if (monitoresPedidos[empresaId]) {
-    console.log("Monitor já ativo:", empresaId);
+async function monitorarPedidosEmpresa(
+  empresaId
+) {
+
+  if (
+    monitoresPedidos[empresaId]
+  ) {
+
+    console.log(
+      "Monitor já ativo:",
+      empresaId
+    );
+
     return;
   }
 
-  console.log("Monitorando pedidos:", empresaId);
+  console.log(
+    "Monitorando pedidos:",
+    empresaId
+  );
 
   const unsubscribe = db
     .collection("empresas")
     .doc(empresaId)
     .collection("pedidos")
-    .onSnapshot(async snapshot => {
+    .onSnapshot(
+      async snapshot => {
 
-      for (const change of snapshot.docChanges()) {
-
-        if (change.type !== "modified") continue;
-
-        try {
-          const pedido = change.doc.data();
-
-          const pedidoId = change.doc.id;
-
-          const status = pedido.status;
-
-          const config = await buscarConfigBot(empresaId);
-
-          if (config.ativo === false) continue;
-
-          if (config.avisarKanban === false) continue;
-
-          const numero =
-            pedido.whatsapp ||
-            pedido.contato ||
-            pedido.whatsapp_normalizado;
-
-          if (!numero) continue;
-
-          const notificacoes = pedido.bot_notificacoes || {};
-
-          let mensagem = null;
-          let campoControle = null;
+        for (
+          const change of snapshot.docChanges()
+        ) {
 
           if (
-            status === "aceitos" &&
-            !notificacoes.aceito
-          ) {
-            mensagem =
-              config.mensagemPedidoAceito ||
-              "✅ Seu pedido foi aceito!";
+            change.type !== "modified"
+          ) continue;
 
-            campoControle = "aceito";
-          }
+          try {
 
-          else if (
-            status === "entrega" &&
-            !notificacoes.entrega
-          ) {
-            mensagem =
-              config.mensagemSaiuEntrega ||
-              "🚗 Seu pedido saiu para entrega!";
+            const pedido =
+              change.doc.data();
 
-            campoControle = "entrega";
-          }
+            const status =
+              pedido.status;
 
-          else if (
-            status === "finalizado" &&
-            !notificacoes.finalizado
-          ) {
-            mensagem =
-              config.mensagemPedidoFinalizado ||
-              "✅ Pedido finalizado!";
+            const config =
+              await buscarConfigBot(
+                empresaId
+              );
 
-            campoControle = "finalizado";
-          }
+            if (
+              config.ativo === false
+            ) continue;
 
-          else if (
-            status === "cancelado" &&
-            !notificacoes.cancelado
-          ) {
-            mensagem =
-              config.mensagemPedidoCancelado ||
-              "❌ Pedido cancelado.";
+            if (
+              config.avisarKanban === false
+            ) continue;
 
-            campoControle = "cancelado";
-          }
+            const numero =
+              pedido.whatsapp ||
+              pedido.contato ||
+              pedido.whatsapp_normalizado;
 
-          if (!mensagem) continue;
+            if (!numero) continue;
 
-          const nomeCliente =
-            pedido.nomeCliente ||
-            pedido.cliente ||
-            "Cliente";
+            const notificacoes =
+              pedido.bot_notificacoes || {};
 
-          const textoFinal =
+            let mensagem = null;
+
+            let campoControle = null;
+
+            if (
+              status === "aceitos" &&
+              !notificacoes.aceito
+            ) {
+
+              mensagem =
+                config.mensagemPedidoAceito ||
+                "✅ Seu pedido foi aceito!";
+
+              campoControle =
+                "aceito";
+            }
+
+            else if (
+              status === "entrega" &&
+              !notificacoes.entrega
+            ) {
+
+              mensagem =
+                config.mensagemSaiuEntrega ||
+                "🚗 Seu pedido saiu para entrega!";
+
+              campoControle =
+                "entrega";
+            }
+
+            else if (
+              status === "finalizado" &&
+              !notificacoes.finalizado
+            ) {
+
+              mensagem =
+                config.mensagemPedidoFinalizado ||
+                "✅ Pedido finalizado!";
+
+              campoControle =
+                "finalizado";
+            }
+
+            else if (
+              status === "cancelado" &&
+              !notificacoes.cancelado
+            ) {
+
+              mensagem =
+                config.mensagemPedidoCancelado ||
+                "❌ Pedido cancelado.";
+
+              campoControle =
+                "cancelado";
+            }
+
+            if (!mensagem) continue;
+
+            const nomeCliente =
+              pedido.nomeCliente ||
+              pedido.cliente ||
+              "Cliente";
+
+            const textoFinal =
 `${mensagem}
 
 👤 ${nomeCliente}
 💰 Total: R$ ${pedido.total || 0}`;
 
-          const enviado = await enviarMensagemEmpresa(
-            empresaId,
-            numero,
-            textoFinal
-          );
+            const enviado =
+              await enviarMensagemEmpresa(
+                empresaId,
+                numero,
+                textoFinal
+              );
 
-          if (!enviado) continue;
+            if (!enviado) continue;
 
-          await change.doc.ref.set({
-            bot_notificacoes: {
-              ...notificacoes,
-              [campoControle]: true,
-              atualizado_em:
-                admin.firestore.FieldValue.serverTimestamp()
-            }
-          }, { merge: true });
+            await change.doc.ref.set({
+              bot_notificacoes: {
+                ...notificacoes,
+                [campoControle]: true,
+                atualizado_em:
+                  admin.firestore.FieldValue.serverTimestamp()
+              }
+            }, { merge: true });
 
-          console.log(
-            "Notificação enviada:",
-            empresaId,
-            pedidoId,
-            status
-          );
+            console.log(
+              "Notificação enviada:",
+              empresaId,
+              status
+            );
 
-        } catch (erro) {
-          console.log(
-            "Erro monitor pedido:",
-            erro.message
-          );
+          } catch (erro) {
+
+            console.log(
+              "Erro monitor pedido:",
+              erro.message
+            );
+          }
         }
       }
-    }, erro => {
-      console.log("Erro no snapshot pedidos:", empresaId, erro.message);
-
-      delete monitoresPedidos[empresaId];
-    });
-
-  monitoresPedidos[empresaId] = unsubscribe;
-}
-
-async function iniciarTodosBots() {
-  try {
-    const snapshot =
-      await db.collection("empresas").get();
-
-    for (const doc of snapshot.docs) {
-
-      const empresaId = doc.id;
-
-      try {
-
-        iniciarBotEmpresa(empresaId);
-
-        monitorarPedidosEmpresa(empresaId);
-
-      } catch (erro) {
-        console.log(
-          "Erro iniciar empresa:",
-          empresaId,
-          erro.message
-        );
-      }
-    }
-
-  } catch (erro) {
-    console.log(
-      "Erro iniciarTodosBots:",
-      erro.message
     );
-  }
+
+  monitoresPedidos[empresaId] =
+    unsubscribe;
 }
 
 app.get("/", (req, res) => {
+
   res.json({
     online: true,
     mensagem:
@@ -458,129 +630,88 @@ app.get("/", (req, res) => {
   });
 });
 
-app.post("/bot/iniciar", (req, res) => {
-  try {
-    const { empresaId } = req.body;
+app.post(
+  "/bot/iniciar",
+  (req, res) => {
 
-    const resultado =
-      iniciarBotEmpresa(empresaId);
+    try {
 
-    monitorarPedidosEmpresa(empresaId);
+      const {
+        empresaId
+      } = req.body;
 
-    res.json(resultado);
+      const resultado =
+        iniciarBotEmpresa(
+          empresaId
+        );
 
-  } catch (erro) {
-    res.status(400).json({
-      erro: erro.message
-    });
-  }
-});
-
-app.get("/bot/status/:empresaId", (req, res) => {
-  const { empresaId } = req.params;
-
-  res.json({
-    empresaId,
-    status:
-      statusBots[empresaId] ||
-      "nao_iniciado",
-
-    conectado:
-      statusBots[empresaId] === "conectado",
-
-    autenticado:
-      statusBots[empresaId] === "autenticado",
-
-    temQr: !!qrs[empresaId]
-  });
-});
-
-app.get("/bot/qr/:empresaId", (req, res) => {
-  const { empresaId } = req.params;
-
-  res.json({
-    empresaId,
-    qr: qrs[empresaId] || null,
-    status:
-      statusBots[empresaId] ||
-      "sem_qr"
-  });
-});
-
-app.post("/bot/enviar", async (req, res) => {
-  try {
-    const {
-      empresaId,
-      numero,
-      mensagem
-    } = req.body;
-
-    if (!empresaId || !numero || !mensagem) {
-      return res.status(400).json({
-        erro:
-          "empresaId, numero e mensagem obrigatórios"
-      });
-    }
-
-    const enviado =
-      await enviarMensagemEmpresa(
-        empresaId,
-        numero,
-        mensagem
+      monitorarPedidosEmpresa(
+        empresaId
       );
 
-    res.json({
-      enviado
-    });
+      res.json(resultado);
 
-  } catch (erro) {
-    res.status(500).json({
-      erro: erro.message
-    });
+    } catch (erro) {
+
+      res.status(400).json({
+        erro: erro.message
+      });
+    }
   }
-});
+);
 
-app.post("/bot/desconectar", async (req, res) => {
-  try {
-    const { empresaId } = req.body;
+app.get(
+  "/bot/status/:empresaId",
+  (req, res) => {
 
-    if (!empresaId) {
-      return res.status(400).json({
-        erro: "empresaId obrigatório"
-      });
-    }
-
-    if (!bots[empresaId]) {
-      statusBots[empresaId] = "desconectado";
-
-      delete qrs[empresaId];
-
-      return res.json({
-        empresaId,
-        status: "nao_conectado"
-      });
-    }
-
-    await bots[empresaId].destroy();
-
-    delete bots[empresaId];
-    delete qrs[empresaId];
-
-    statusBots[empresaId] = "desconectado";
+    const {
+      empresaId
+    } = req.params;
 
     res.json({
       empresaId,
-      status: "desconectado"
-    });
 
-  } catch (erro) {
-    res.status(500).json({
-      erro: erro.message
+      status:
+        statusBots[empresaId] ||
+        "nao_iniciado",
+
+      conectado:
+        statusBots[empresaId] ===
+        "conectado",
+
+      autenticado:
+        statusBots[empresaId] ===
+        "autenticado",
+
+      temQr:
+        !!qrs[empresaId]
     });
   }
-});
+);
+
+app.get(
+  "/bot/qr/:empresaId",
+  (req, res) => {
+
+    const {
+      empresaId
+    } = req.params;
+
+    res.json({
+      empresaId,
+
+      qr:
+        qrs[empresaId] || null,
+
+      status:
+        statusBots[empresaId] ||
+        "sem_qr"
+    });
+  }
+);
 
 app.listen(PORT, () => {
+
   console.log(
     `Servidor rodando porta ${PORT}`
   );
